@@ -1,0 +1,131 @@
+
+=================================================
+Date	: 31/10/2026
+Auteur	: Mahomadou CISSE
+cours	: Cryptographie
+Enseignant: Dr. Zakaria Sawadogo
+Année Ac. :	 206-2027
+
+=================================================
+Source : fichier(tp_ec1.pdf)
+Titre  :Travaux pratiques : Trois séances pour construire, déployer et exploiter une cryptographie correcte
+
+--------------------------------------------------  --------------------------------------------------
+
+Compte Rendu du TP N°1
+					Chiffrement authentifié et dérivation de clés
+
+-------------------------------------------------- --------------------------------------------------
+	Environnement de travail Utilisé
+	
+	Version os : Ubuntu 24
+	
+	Environnement Python
+	$ pip freeze
+		argon2-cffi==25.1.0
+		argon2-cffi-bindings==26.1.0
+		cffi==2.1.1
+		cryptography==50.0.2
+		iniconfig==2.3.1
+		packaging==26.3
+		pluggy==1.7.0
+		pycparser==3.12
+		Pygments==2.21.0
+		pytest==9.2.0
+
+--------------------------------------------------  --------------------------------------------------
+
+Rappel du projet:
+		On construit un module Python coffre.py qui chiffre un fichier avec un mot de passe. Le fichier chiffré a le format suivant :
+		Identifiant de format CFR1 	4 octets 
+		Paramètres Argon2id (t, m, p)  	12 octets
+		Sel 					16 octets 
+		Nonce 				12 octets 
+		Chiffré + étiquette 			variable  
+		Les 44 premiers octets (l’en-tête) et le nom du fichier forment les données associées : ils sont authentifiés sans être chiffrés
+
+
+--------------------------		TRAVAIL DEMANDE		----------------------------------------
+
+Etape N°1 Dérivation des clés
+		
+			Le fichier "check_argontimer.py" permet d'ajuster les parametres T et M pour viser 0,5 seconds
+			Nous avons augmenter M = 256Mo et T=5
+			Toutefois le temps d'execution sur notre machine est autour de 0.2176 secondes
+			
+Etape N°2 et 3
+			Le fichier "coffre_testeur.py" permet de tester les differentes activités demandées
+			
+			Aller-retour 
+			-----------
+			L'execution de la function "check_aller_retour()" dans coffre_testeur.py produit le resultat ci dessous
+			
+			$ python3 coffre_testeur.py
+
+				Message Original contenu ds le fichier:b'Mon travail de TP en cryptographie'
+
+				Le Resulat du chiffrement :43465231000000030001000000000004a1951e728a07e62624c6e1c2ddac602abcfa4062a83bab0d1e7d6692dd0d8c5fb7d6bb25a82b6b32565600fd225995970db9d6b5d83e5d46c503bc9337559e5f721ef3c0c50e830925be653bea90
+
+
+				Le Resulat du Déchiffrement:b'Mon travail de TP en cryptographie'
+				
+				
+			Mauvais Mot de passe
+			-----------
+			L'execution de la function "check_wrong_password()" dans coffre_testeur.py produit le resultat ci dessous.
+			La tentative de dechiffrer avec un mauvais mot de passe produit une erreur "cryptography.exceptions.InvalidTag"
+			
+			$ python3 coffre_testeur.py
+
+			Message Original contenu ds le fichier:b'Mon travail de TP en cryptographie'
+
+			Le Resulat du chiffrement:43465231000000030001000000000004dc8ab3b0a48fd704b967aaebf7a5f01db40e89c5d9fa370de74dcb4e1faa51335a5ceaa1a079c3cf26688d998fb95ca630124c86bcc3b69a19211b975bcd1660775670023c3f095200ba36fe7d55
+
+			....
+			cryptography.exceptions.InvalidTag
+
+
+			Modification de l'intégrité physique du chiffrement obtenu
+			--------------------
+			L'execution de la function "check_chiffre_corrupted()" dans coffre_testeur.py produit le resultat ci dessous.
+			
+			La tentative de dechiffrer un chiffrement corrompu produit une erreur "cryptography.exceptions.InvalidTag"
+			
+			$ python3 coffre_testeur.py
+			....
+			cryptography.exceptions.InvalidTag
+			
+			Fichier Renommer
+			--------------------
+			L'execution de la function "check_rename_file()" dans coffre_testeur.py produit le resultat ci dessous.
+			
+			La tentative de dechiffrer un chiffrement en utilisant une autre nom de fichier produit une erreur "cryptography.exceptions.InvalidTag"
+			
+			$ python3 coffre_testeur.py
+			....
+			cryptography.exceptions.InvalidTag
+			
+			
+			
+--------------------------	Questions de réflexion	----------------------------------------			
+
+1#
+Le sel est une information importante qui rentre ds le chiffrement de la donnée. 
+Il est essentiel pour déchiffrer la données chiffrée puisque c'est le meme sel qui sera utilisé lors du déchiffrement. 
+
+Dans le cas des mot de passe, 
+il est stocké en clair par qu'il n'est pas un secret, c'est le mot de passe qui est secret. Son objectif est de produire une empreinte unique qui resistera a une attaque brute force.
+
+Quand bien meme il ne soit pas entouré de mystère comme le mot de passe, publier le sel est dangereux car il intervient dans le déchiffrement du mot de passe. En règle generale toutes informations, ausi bénigne soit elle est importante lorsque on veut faire une attaque.
+
+2#
+C'est une question de probalité. tirer un nonce sur 96bits soit 12 octets permet d'aggrandir la probabilité d'apparition unique du nonce lors du traitement de plusieurs données.
+
+3#
+Les données associées ne sont pas predefinis statutairement. Comme leur nom l'indique ce sont des informations supplementaires qui augmentent la sécurite du chiffrement. De ca fait on aurait pu choisir les metadata sans inclure le nom du fichier. 
+Seulement le nom de fichier est tout aussi important pour eviter certains types d'attaques; renommer un fichier peut induire en erreur le destinataire 
+
+4#
+L'entete est authentifié pour eviter certaines formes d'attaques
+
+5# Comme evoqué précedemment toutes informations est bonne pour etre utilisée dans une attaque. La confidentitialité sur l'algorithm utilisé meme est une forme de sécurité afin d'allourdir la tâche de l'attaquant. Si on affiche beaucoup d'informations en cas d'erreur il saura quelle algorithme nous avons utilisé.			

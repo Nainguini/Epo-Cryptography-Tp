@@ -1,0 +1,214 @@
+
+=================================================
+Date	: 31/10/2026
+Auteur	: Mahomadou CISSE
+cours	: Cryptographie
+Enseignant: Dr. Zakaria Sawadogo
+Année Ac. :	 206-2027
+
+=================================================
+Source : fichier(tp_ec1.pdf)
+Titre  :Travaux pratiques : Trois séances pour construire, déployer et exploiter une cryptographie correcte
+
+--------------------------------------------------  --------------------------------------------------
+
+Compte Rendu du TP N°2
+					Construire une infrastructure de gestion de clés
+
+-------------------------------------------------- --------------------------------------------------
+
+Rappel du projet
+
+	— créer une AC (autorité de certification) racine et une AC intermédiaire avec les bonnes
+	extensions ;
+	— émettre des certificats de serveur et de client à partir de demandes de certificat (CSR (Certificate
+	Signing Request, demande de signature de certificat)) ;
+	— valider une chaîne de certificats et en comprendre chaque contrôle ;
+	— révoquer un certificat et publier une liste de révocation (CRL (Certificate Revocation List,
+	liste de certificats révoqués)) ;
+	— restreindre une AC intermédiaire par des contraintes de nom.
+	
+--------------------------		TRAVAIL DEMANDE		--------------------------------------------
+
+
+Etape N°1 Expliquer le role de chaque ligne
+
+		Dans le fichier de configuration  de l'AC racine, "racine.cnf"
+		nous avons la section d'extention qui defini la configuration d'un certificat d'autorité intermédiaire
+		
+		#
+		Explication  des directives dans  la section d'extention du "racine.cnf"
+
+		[ ext_inter ]
+		
+		basicConstraints = critical,CA:TRUE,pathlen:0  ===> Cet certificat est pour une autorité de certification(CA=TRUE);
+															qui produit des cerificats finaux pour les serveurs et les utilisateur(pathlen:0)
+															et on ne peut pas creer d'autre intermediaire sous lui
+		
+		
+		nameConstraints = critical,permitted;DNS:.tp.local,permitted;DNS:tp.local,permitted;email:tp.local
+													  ===>Notre AC intermediaire n'a le droit de signer des certificats que pour les domaine tp.local
+														  et les sous-domaine .tp.local
+		
+		subjectKeyIdentifier = hash					==> Genere un identifiant unique en utilisant un algorithm de Hash
+		authorityKeyIdentifier = keyid				==> Recupere l'identifiant du certificat de l'AC pour inscrire ds le certificat produit
+		
+		
+		#
+		Explication  des directives dans  la section d'extention du "inter.cnf"
+		
+		[ ext_serveur ]
+		
+		basicConstraints = critical,CA:FALSE 		==> Cet certificat n'est pas pour une autorité de certification(CA=FALSE)
+														Donc c'est un certificat final
+		
+		keyUsage = critical,digitalSignature		==> restreint l'usage de la clé publique, digitalsignature est un mecanisme 
+														d'echange de clé(RSA)
+														
+		extendedKeyUsage = serverAuth				==> Légitimité du serveur
+		
+		subjectKeyIdentifier = hash					==> Génère automatiquement un identifiant unique
+		authorityKeyIdentifier = keyid				==> Recupere l'identifiant du certificat de l'AC pour inscrire ds le certificat produit
+		
+		[ ext_client ]
+		basicConstraints = critical,CA:FALSE		==> idem section [ ext_serveur ]
+		
+		keyUsage = critical,digitalSignature		==> idem section [ ext_serveur ]
+		
+		extendedKeyUsage = clientAuth				==> CE certificat appartient a un utilisateur client, il est legitime
+		
+		subjectAltName = email:alice@tp.local		==> SAN est configuré pour une adresse e-mail
+		subjectKeyIdentifier = hash
+		authorityKeyIdentifier = keyid
+		
+Etape N°2 Repérer dans la sortie
+
+		$ $ openssl x509 -in racine/racine.crt -noout -text
+		
+			Emetteur: C = BF, O = Universite TP, CN = Racine TP
+			Subject :  C = BF, O = Universite TP, CN = Racine TP
+			Validité: 	Not Before: Oct 30 13:57:06 2026 GMT et
+						Not After : Oct 27 13:57:06 2036 GMT
+						
+			Algorithm: ecdsa-with-SHA384
+			
+			Extensions: X509v3 Basic Constraints: critical
+							CA:TRUE, pathlen:1
+						X509v3 Key Usage: critical
+							Certificate Sign, CRL Sign
+
+
+Etape N°3 Verifier les contrainte pathlen:0
+
+		X509v3 Basic Constraints: critical
+                CA:TRUE, pathlen:0
+
+Étape 4 – Certificats de serveur et de client
+
+	# --- Certificat server
+	$ openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out server.key
+	# --- Demande de signature
+	$ openssl req -new -key server.key -subj "/CN=www.tp.local" -addext "subjectAltName=DNS:www.tp.local,DNS:tp.local" -out server.csr
+	# --- Signature dde la clé du serveur
+	$ openssl ca -batch -config inter.cnf -extensions ext_serveur -days 90 -in server.csr -out server.crt
+
+	# --- Certificat Alice
+	$ openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out alice.key
+	$ openssl req -new -key alice.key -subj "/CN=alice@tp.local" -out alice.csr
+	$ openssl ca -batch -config inter.cnf -extensions ext_client -days 90 -in alice.csr -out alice.crt
+	
+Étape 5 – Valider
+
+	$ openssl verify -CAfile racine/racine.crt -untrusted inter/inter.crt -verify_hostname www.tp.local server.crt
+		server.crt: OK
+		
+	$ openssl verify -CAfile racine/racine.crt -untrusted inter/inter.crt -verify_hostname autre.example server.crt
+		CN = www.tp.local
+		error 62 at 0 depth lookup: hostname mismatch
+		error server.crt: verification failed
+		
+	$ openssl verify -CAfile racine/racine.crt -untrusted inter/inter.crt -purpose sslclient alice.crt
+		alice.crt: OK
+		
+	Demande de certificat pour une autre server 'www.example.com', on va baptiser ce certificat example_server.crt
+	
+	# --- Certificat example_server
+	$ openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out example_server.key
+	$ openssl req -new -key example_server.key -subj "/CN=www.example.com" -addext "subjectAltName=DNS:www.example.com" -out example_server.csr
+	$ openssl ca -batch -config inter.cnf -extensions ext_serveur -days 90 -in example_server.csr -out example_server.crt
+	
+	# --- Validation du example_server.crt
+	$ openssl verify -CAfile racine/racine.crt -untrusted inter/inter.crt -verify_hostname www.example.com example_server.crt
+		CN = www.example.com
+		error 47 at 0 depth lookup: permitted subtree violation
+		error example_server.crt: verification failed
+
+	Question
+		L'AC refuse à la validation parcequ'il a une contrainte qui l'oblige a accepter que les certificats pour les serveurs ayant les domaines tp.local ou sous domaine .tp.local
+		
+Étape 6 – Révoquer
+		On suppose que Alice a été compromis
+
+	$ openssl ca -config inter.cnf -revoke alice.crt -crl_reason keyCompromise
+	$ openssl ca -config inter.cnf -gencrl -out inter/crl/inter.crl
+	$ openssl ca -config racine.cnf -gencrl -out racine/crl/racine.crl
+	$ cat inter/crl/inter.crl racine/crl/racine.crl > crls.pem
+	$ openssl verify -crl_check_all -CRLfile crls.pem -CAfile racine/racine.crt -untrusted inter/inter.crt alice.crt
+		CN = alice@tp.local
+		error 23 at 0 depth lookup: certificate revoked
+		error alice.crt: verification failed
+		
+	$ openssl crl -in inter/crl/inter.crl -noout -text
+	
+Étape 6 – Automatiser
+			==> Fichier pki.sh 
+			
+--------------------------	Questions de réflexion	----------------------------------------			
+
+1#
+	L'autorité de certification intermediaire qui s'occupe de delivrer les certificats aux serveurs web et aux utilisateurs;
+	L'autorité de certification intermediaire a la déléguation de pouvoir de l'autorité racine pour signer les certificats qu'il delivre.
+	Cette stratégie sécurise l'autorité de certificat racine qui doit etre garder hors ligne et en lieu sure pour eviter les attaques.
+	C'est l'autorité intermediaire qui de par son action protege la clé privé de la racine.
+	
+	En cas de compromission de l'AC intermediaire, on la revoque tout simplement, La racine, elle reste en place.
+	Il suffit de mettre en place un nouveau intermediaire de confiance
+	
+2#
+À quoi sert pathlen:0 sur l’intermédiaire ? Quel risque si on l’oublie ?
+
+	"pathlen" est une contrainte imposée aux certifications d'une AC afin de limiter le nombre maximum d'autorité de certification intermediaire.
+	Avec une pathlen:1, l'AC peut signer au maximum une seule generation d'autorités de certifications intermediaires.
+		Si pathlen:0 alors l'AC emet elle meme des certificats finaux (ce sera le cas des AC intermediaires)
+		
+		Si pathlen est absent, aucune limite n'est imposé. l'AC peut signer les AC intermediaires qui peuvent aussi signer d'autre AC intermedaires.
+		C'est situation peut etre comprometant dans le cas ou une AC intermediaire peut elle meme signer une autre AC intermediaire car on peut creer une AC intermediaire illégitime afin de servir un autre but. Les bonnes pratiques imposent que le pathlen soit defini.
+		
+3#
+Pourquoi la clé privée du serveur est-elle générée par le serveur et non par l’AC?
+	Cela trouve son explication dans la nature meme de l'autorité de certification
+	Une AC certifie qu'un tiers est de confiance, il garanti qu'un site web ou un service en ligne est bien celui qu'il prentend etre.
+	Elle assure l'intégrité des données produits par le tiers(servers) et une communication sécurisé entre vous et le tiers.
+	C'est le serveur qui produit ces informations de sécurité(csr) et demande à l'autorité de certifier que ces informations sont valables selon un ensemble de critères de securité et que l'on peut lui faire confiance. 
+	Cette action est matérialisé par la signature du certificat avec la clé pricée de l'AC, rendant le tiers valide et de confiance
+	
+4#
+
+	Etant donné que SAN(Subject Alternative Name) est obligatoire, c'est ce dernier que les clients vérifient.
+
+5#
+Quelles sont les limites des CRL? Comparer avec OCSP (Online Certificate Status Protocol, protocole de vérification en ligne de l’état d’un certificat) et avec des certificats de très courte durée.
+
+Les CRL c'est la liste noire des certificats; ils contiennent les certificats revoqués par l'autorité. La limite des CRL est que pour etre a jour des certificats revoqué, il faut consulter la liste publiée a jour de l'autorité. il existe alors un temps de flottement entre la publication, la verification des tiers; temps qui peut etre exploité pour opérer une compromission.
+
+Comparer à OCSP, 
+		Ce dernier permet une verification en temps réel à la demande auprès de l'autorité pour un certificat spécifique. c'est plus rapide!
+
+6#.
+Rédiger en dix lignes une politique de certification minimale pour cette infrastructure
+
+	[
+	Nous avons mis en place une autorité de certification racine qui ne delivre pas directement de cetificats mais delegue cette tache à l'autorité intermediaire. 
+	Aupres de l'ac intermediaire, seuls les serveurs placé dans le sous domaine ".tp.local" ou ayant le domaine "tp.local" peuvent obtenir une certificationvalide. Les autrs serveur n'etant pas du domaine indiqué peuvent aussi obtenir un certificat; sauf qu'il ne seront pas valide lors de la vérification.
+	Le certificat produit pourra etre exploité avec les adresses email du domaine tp.local.
+	]
